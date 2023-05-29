@@ -27,7 +27,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # 3-rd party apps
     'rest_framework',
-    'clickuz'
+    'clickuz',
+    'PaycomUz',
     # local apps
     'payments',
 ]
@@ -122,4 +123,14 @@ CLICK_SETTINGS = {
     "merchant_user_id": "30092"
 }
 
+PAYCOM_SETTINGS = {
+    "KASSA_ID": "646476632cb83937a7547a97",
+    "TOKEN": "646476632cb83937a7547a97",
+    "SECRET_KEY": "cm@Of&eSQYMtQbcZ?K0%t1Y5EHWE3mvPGSDD",
+    "ACCOUNTS": {
+        "KEY": "order_id"
+    }
+}
+
+# CORS_ALLOW_ALL_ORIGINS = True
 
