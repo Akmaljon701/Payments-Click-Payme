@@ -17,7 +17,7 @@ class ClickAPIView(APIView):
             data = serializer.validated_data
             payment = Payment(
                 amount = data.get('amount'),
-                type = 'click',
+                type = 'Click',
                 completed = False
             )
             payment.save()
@@ -65,7 +65,7 @@ class PaymeAPIView(APIView):
             data = serializer.validated_data
             payment = Payment(
                 amount = data.get('amount'),
-                type = 'payme',
+                type = 'Payme',
                 completed = False
             )
             payment.save()
