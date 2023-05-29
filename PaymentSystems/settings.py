@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     # 3-rd party apps
     'rest_framework',
     'clickuz',
-    'PaycomUz',
+    'paycomuz',
     # local apps
     'payments',
 ]
