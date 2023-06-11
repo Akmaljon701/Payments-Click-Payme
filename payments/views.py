@@ -72,7 +72,8 @@ class PaymeAPIView(APIView):
             paycom = Paycom()
             url = paycom.create_initialization(
                 amount=payment.amount * 100,
-                order_id=str(payment.id)
+                order_id=str(payment.id),
+                return_url=""
             )
             return Response({
                 "link": url

@@ -7,13 +7,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
+
+import environ
+env = environ.Env()
+environ.Env.read_env()
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-)ti8vh+kl#@*1ijut68l$s3a*fzbll=6sc!a@!t0$ts(16oc^0'
+SECRET_KEY = env('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -109,6 +114,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
+
+
 STATIC_URL = 'static/'
 
 # Default primary key field type
@@ -117,20 +124,21 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CLICK_SETTINGS = {
-    "service_id": "26422",
-    "merchant_id": "18648",
-    "secret_key": "SIL0aI5ijxl0TbL",
-    "merchant_user_id": "30092"
+    "service_id": env("SERVICE_ID"),
+    "merchant_id": env("MERCHANT_ID"),
+    "secret_key": env("CL_SECRET_KEY"),
+    "merchant_user_id": env("MERCH_USER_ID")
 }
 
 PAYCOM_SETTINGS = {
-    "KASSA_ID": "646476632cb83937a7547a97",
-    "TOKEN": "646476632cb83937a7547a97",
-    "SECRET_KEY": "cm@Of&eSQYMtQbcZ?K0%t1Y5EHWE3mvPGSDD",
+    "KASSA_ID": env("KASSA_ID"),
+    "TOKEN": env("KASSA_ID"),
+    "SECRET_KEY": env("PAYCOM_SECRET_KEY"),
+    # "TEST_KEY" : env("TEST_KEY"),
     "ACCOUNTS": {
         "KEY": "order_id"
     }
 }
 
-# CORS_ALLOW_ALL_ORIGINS = True
+
 
