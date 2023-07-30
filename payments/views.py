@@ -18,11 +18,13 @@ class ClickAPIView(APIView):
             payment = Payment(
                 amount = data.get('amount'),
                 type = 'Click',
-                completed = False
+                completed = False,
+                role = data.get("role"),
+                doctor_patient_id = data.get('doctor_patient_id')
             )
             payment.save()
             url = ClickUz.generate_url(
-                order_id=str(payment.id),
+                order_id=str(payment.doctor_patient_id),
                 amount=str(payment.amount)
             )
             return Response({
@@ -32,20 +34,32 @@ class ClickAPIView(APIView):
 
 class OrderCheckAndPayment(ClickUz):
     def check_order(self, order_id: str, amount: str):
-        charge = Payment.objects.filter(id=order_id)
+        charge = Payment.objects.filter(doctor_patient_id=order_id)
         if charge.exists():
-            charge = charge.first()
+            charge = charge.last()
             if charge.amount == int(amount):
                 return self.ORDER_FOUND
             else:
-                return self.INVALID_AMOUNT
+                Payment(
+                    amount=int(amount),
+                    type='Click',
+                    completed=False,
+                    doctor_patient_id=order_id
+                )
+                return self.ORDER_FOUND
         else:
-            return self.ORDER_NOT_FOUND
+            Payment(
+                amount=int(amount),
+                type='Click',
+                completed=False,
+                doctor_patient_id=order_id
+            )
+            return self.ORDER_FOUND
 
     def successfully_payment(self, order_id: str, transaction: object):
-        charge = Payment.objects.filter(id=order_id)
+        charge = Payment.objects.filter(doctor_patient_id=order_id)
         if charge.exists():
-            charge = charge.first()
+            charge = charge.last()
             charge.completed = True
             charge.save()
             return True

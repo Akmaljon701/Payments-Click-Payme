@@ -7,6 +7,6 @@ urlpatterns = [
     path('click_tolov/', ClickAPIView.as_view()),
     path('payme_tolov/', PaymeAPIView.as_view()),
     path('clickuz/', ClickView.as_view()),
-    path('payme/', PaycomView.as_view()),
+    path('', PaycomView.as_view()),
 ]
 
