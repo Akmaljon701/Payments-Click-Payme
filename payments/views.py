@@ -10,17 +10,18 @@ from paycomuz.models import Transaction
 from .models import *
 from .serializers import *
 
+
 class ClickAPIView(APIView):
     def post(self, request):
-        serializer = PaymentSerializer(data = request.data)
+        serializer = PaymentSerializer(data=request.data)
         if serializer.is_valid():
             data = serializer.validated_data
             payment = Payment(
-                amount = data.get('amount'),
-                type = 'Click',
-                completed = False,
-                role = data.get("role"),
-                doctor_patient_id = data.get('doctor_patient_id')
+                amount=data.get('amount'),
+                type='Click',
+                completed=False,
+                role=data.get("role"),
+                doctor_patient_id=data.get('doctor_patient_id')
             )
             payment.save()
             url = ClickUz.generate_url(
@@ -32,6 +33,7 @@ class ClickAPIView(APIView):
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class OrderCheckAndPayment(ClickUz):
     def check_order(self, order_id: str, amount: str):
         charge = Payment.objects.filter(doctor_patient_id=order_id)
@@ -40,20 +42,18 @@ class OrderCheckAndPayment(ClickUz):
             if charge.amount == int(amount):
                 return self.ORDER_FOUND
             else:
-                Payment(
-                    amount=int(amount),
-                    type='Click',
-                    completed=False,
-                    doctor_patient_id=order_id
-                )
+                charge.amount = int(amount)
+                charge.save()
                 return self.ORDER_FOUND
         else:
-            Payment(
+            payment = Payment(
                 amount=int(amount),
                 type='Click',
                 completed=False,
+                role='Patient',
                 doctor_patient_id=order_id
             )
+            payment.save()
             return self.ORDER_FOUND
 
     def successfully_payment(self, order_id: str, transaction: object):
@@ -71,16 +71,15 @@ class ClickView(ClickUzMerchantAPIView):
     VALIDATE_CLASS = OrderCheckAndPayment
 
 
-
 class PaymeAPIView(APIView):
     def post(self, request):
         serializer = PaymentSerializer(data=request.data)
         if serializer.is_valid():
             data = serializer.validated_data
             payment = Payment(
-                amount = data.get('amount'),
-                type = 'Payme',
-                completed = False
+                amount=data.get('amount'),
+                type='Payme',
+                completed=False
             )
             payment.save()
             paycom = Paycom()
@@ -136,6 +135,7 @@ class CheckOrder(Paycom):
                 return False
         else:
             return False
+
 
 class PaycomView(MerchantAPIView):
     VALIDATE_CLASS = CheckOrder
