@@ -1,3 +1,6 @@
+from clickuz.click_authorization import click_authorization
+from clickuz.serializer import ClickUzSerializer
+from clickuz.status import PREPARE, COMPLETE, AUTHORIZATION_FAIL_CODE, AUTHORIZATION_FAIL
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.response import Response
@@ -35,7 +38,7 @@ class ClickAPIView(APIView):
 
 
 class OrderCheckAndPayment(ClickUz):
-    def check_order(self, order_id: str, amount: str):
+    def check_order(self, order_id: str, amount: str, param3:str, *args, **kwargs):
         charge = Payment.objects.filter(doctor_patient_id=order_id)
         if charge.exists():
             charge = charge.last()
@@ -43,21 +46,30 @@ class OrderCheckAndPayment(ClickUz):
                 return self.ORDER_FOUND
             else:
                 charge.amount = int(amount)
+                if param3 == '1':
+                    charge.role = 'Doktor'
+                else:
+                    charge.role = 'Bemor'
                 charge.save()
                 return self.ORDER_FOUND
         else:
+            if param3 == '1':
+                n = 'Doktor'
+            else:
+                n = 'Bemor'
             payment = Payment(
                 amount=int(amount),
                 type='Click',
                 completed=False,
-                role='Patient',
+                role=n,
                 doctor_patient_id=order_id
             )
             payment.save()
             return self.ORDER_FOUND
 
-    def successfully_payment(self, order_id: str, transaction: object):
+    def successfully_payment(self, order_id: str, transaction: object, *args, **kwargs):
         charge = Payment.objects.filter(doctor_patient_id=order_id)
+        print(f"All args: {args}, {kwargs}, {transaction}")
         if charge.exists():
             charge = charge.last()
             charge.completed = True
@@ -70,7 +82,33 @@ class OrderCheckAndPayment(ClickUz):
 class ClickView(ClickUzMerchantAPIView):
     VALIDATE_CLASS = OrderCheckAndPayment
 
+    def post(self, request):
+        serializer = ClickUzSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        METHODS = {
+            PREPARE: self.prepare,
+            COMPLETE: self.complete
+        }
 
+        merchant_trans_id = serializer.validated_data['merchant_trans_id']
+        amount = serializer.validated_data['amount']
+        action = serializer.validated_data['action']
+
+        if click_authorization(**serializer.validated_data) is False:
+            return Response({
+                "error": AUTHORIZATION_FAIL_CODE,
+                "error_note": AUTHORIZATION_FAIL
+            })
+
+        assert self.VALIDATE_CLASS != None
+        check_order = self.VALIDATE_CLASS().check_order(order_id=merchant_trans_id, amount=amount, param3=request.data.get('param3'))
+        if check_order is True:
+            result = METHODS[action](**serializer.validated_data, response_data=serializer.validated_data)
+            return Response(result)
+        return Response({"error": check_order})
+
+
+# Payme
 class PaymeAPIView(APIView):
     def post(self, request):
         serializer = PaymentSerializer(data=request.data)
