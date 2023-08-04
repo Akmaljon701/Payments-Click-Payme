@@ -69,7 +69,6 @@ class OrderCheckAndPayment(ClickUz):
 
     def successfully_payment(self, order_id: str, transaction: object, *args, **kwargs):
         charge = Payment.objects.filter(doctor_patient_id=order_id)
-        print(f"All args: {args}, {kwargs}, {transaction}")
         if charge.exists():
             charge = charge.last()
             charge.completed = True
