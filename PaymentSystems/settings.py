@@ -136,7 +136,7 @@ PAYCOM_SETTINGS = {
     "SECRET_KEY": env("PAYCOM_SECRET_KEY"),
     # "TEST_KEY" : env("TEST_KEY"),
     "ACCOUNTS": {
-        "KEY": "order_id"
+        "KEY": "abonent_id"
     }
 }
 

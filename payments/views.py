@@ -1,6 +1,7 @@
 from clickuz.click_authorization import click_authorization
 from clickuz.serializer import ClickUzSerializer
 from clickuz.status import PREPARE, COMPLETE, AUTHORIZATION_FAIL_CODE, AUTHORIZATION_FAIL
+from paycomuz.status import ORDER_FOUND, ORDER_NOT_FOND, ORDER_NOT_FOND_MESSAGE, CREATE_TRANSACTION
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.response import Response
@@ -9,6 +10,8 @@ from clickuz.views import ClickUzMerchantAPIView
 from paycomuz import Paycom
 from paycomuz.views import MerchantAPIView
 from paycomuz.models import Transaction
+from datetime import datetime
+from rest_framework import serializers
 
 from .models import *
 from .serializers import *
@@ -116,13 +119,15 @@ class PaymeAPIView(APIView):
             payment = Payment(
                 amount=data.get('amount'),
                 type='Payme',
-                completed=False
+                completed=False,
+                role=data.get("role"),
+                doctor_patient_id=data.get('doctor_patient_id')
             )
             payment.save()
             paycom = Paycom()
             url = paycom.create_initialization(
                 amount=payment.amount * 100,
-                order_id=str(payment.id),
+                order_id=str(payment.doctor_patient_id),
                 return_url=""
             )
             return Response({
@@ -134,23 +139,36 @@ class PaymeAPIView(APIView):
 
 class CheckOrder(Paycom):
     def check_order(self, amount, account, *args, **kwargs):
-        charge = Payment.objects.filter(id=account.get('order_id'))
+        charge = Payment.objects.filter(doctor_patient_id=account.get('abonent_id'))
         if charge.exists():
-            charge = charge.first()
+            charge = charge.last()
             if float(charge.amount) == float(amount) / 100:
                 return self.ORDER_FOUND
             else:
-                return self.INVALID_AMOUNT
+                charge.amount = int(amount)
+                charge.save()
+                return self.ORDER_FOUND
         else:
-            return self.ORDER_NOT_FOND
+            payment = Payment(
+                amount=int(amount),
+                type='Payme',
+                completed=False,
+                role=account.get("role"),
+                doctor_patient_id=account.get('abonent_id')
+            )
+            payment.save()
+            return self.ORDER_FOUND
 
     def successfully_payment(self, account, transaction, *args, **kwargs):
         transaction = Transaction.objects.filter(_id=account["id"])
+        print(f"Succesfull--> {transaction}")
         if transaction.exists():
             transaction = transaction.first()
-            charge = Payment.objects.filter(id=transaction.order_key)
+            charge = Payment.objects.filter(doctor_patient_id=transaction.order_key)
+            print(f"Tr exists -> {transaction}")
             if charge.exists():
-                charge = charge.first()
+                charge = charge.last()
+                print(f"Charge exists--> {charge}")
                 charge.completed = True
                 charge.save()
                 return True
@@ -163,9 +181,9 @@ class CheckOrder(Paycom):
         transaction = Transaction.objects.filter(_id=account["id"])
         if transaction.exists():
             transaction = transaction.first()
-            charge = Payment.objects.filter(id=transaction.order_key)
+            charge = Payment.objects.filter(doctor_patient_id=account.get('abonent_id'))
             if charge.exists():
-                charge = charge.first()
+                charge = charge.last()
                 charge.delete()
                 return True
             else:
@@ -176,3 +194,67 @@ class CheckOrder(Paycom):
 
 class PaycomView(MerchantAPIView):
     VALIDATE_CLASS = CheckOrder
+
+    def create_transaction(self, validated_data):
+        """
+        >>> self.create_transaction(validated_data)
+        """
+        order_key = validated_data['params']['account'].get(self.ORDER_KEY)
+        if not order_key:
+            raise serializers.ValidationError(f"{self.ORDER_KEY} required field")
+
+        validate_class: Paycom = self.VALIDATE_CLASS()
+        result: int = validate_class.check_order(**validated_data['params'])
+        assert result != None
+        if result != ORDER_FOUND:
+            self.REPLY_RESPONSE[result](validated_data)
+            return
+
+        _id = validated_data['params']['id']
+        check_transaction = Transaction.objects.filter(order_key=order_key).order_by('-id')
+        if check_transaction.exists():
+            transaction = check_transaction.first()
+            if transaction.status != Transaction.CANCELED and transaction._id == _id:
+                self.reply = dict(result=dict(
+                    create_time=int(transaction.created_datetime),
+                    transaction=str(transaction.id),
+                    state=CREATE_TRANSACTION
+                ))
+            elif transaction.status == Transaction.CANCELED and transaction._id != _id:
+                self.reply = dict(error=dict(
+                    id=validated_data['id'],
+                    code=ORDER_NOT_FOND,
+                    message=ORDER_NOT_FOND_MESSAGE
+                ))
+            else:
+                current_time = datetime.now()
+                current_time_to_string = int(round(current_time.timestamp()) * 1000)
+                obj = Transaction.objects.create(
+                    request_id=validated_data['id'],
+                    _id=validated_data['params']['id'],
+                    amount=validated_data['params']['amount'] / 100,
+                    order_key=validated_data['params']['account'][self.ORDER_KEY],
+                    state=CREATE_TRANSACTION,
+                    created_datetime=current_time_to_string
+                )
+                self.reply = dict(result=dict(
+                    create_time=current_time_to_string,
+                    transaction=str(obj.id),
+                    state=CREATE_TRANSACTION
+                ))
+        else:
+            current_time = datetime.now()
+            current_time_to_string = int(round(current_time.timestamp()) * 1000)
+            obj = Transaction.objects.create(
+                request_id=validated_data['id'],
+                _id=validated_data['params']['id'],
+                amount=validated_data['params']['amount'] / 100,
+                order_key=validated_data['params']['account'][self.ORDER_KEY],
+                state=CREATE_TRANSACTION,
+                created_datetime=current_time_to_string
+            )
+            self.reply = dict(result=dict(
+                create_time=current_time_to_string,
+                transaction=str(obj.id),
+                state=CREATE_TRANSACTION
+            ))
