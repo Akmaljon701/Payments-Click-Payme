@@ -145,7 +145,7 @@ class CheckOrder(Paycom):
             if float(charge.amount) == float(amount) / 100:
                 return self.ORDER_FOUND
             else:
-                charge.amount = int(amount)
+                charge.amount = int((amount)/100)
                 charge.save()
                 return self.ORDER_FOUND
         else:
@@ -161,14 +161,11 @@ class CheckOrder(Paycom):
 
     def successfully_payment(self, account, transaction, *args, **kwargs):
         transaction = Transaction.objects.filter(_id=account["id"])
-        print(f"Succesfull--> {transaction}")
         if transaction.exists():
             transaction = transaction.first()
             charge = Payment.objects.filter(doctor_patient_id=transaction.order_key)
-            print(f"Tr exists -> {transaction}")
             if charge.exists():
                 charge = charge.last()
-                print(f"Charge exists--> {charge}")
                 charge.completed = True
                 charge.save()
                 return True
@@ -195,6 +192,12 @@ class CheckOrder(Paycom):
 class PaycomView(MerchantAPIView):
     VALIDATE_CLASS = CheckOrder
 
+    user_topilmadi_xatoligi = {
+    "uz": "Foydalanuvchi topilmadi.",
+    "ru": "Пользователь не найден.",
+    "en": "User not found."
+    }
+
     def create_transaction(self, validated_data):
         """
         >>> self.create_transaction(validated_data)
@@ -209,7 +212,7 @@ class PaycomView(MerchantAPIView):
         if result != ORDER_FOUND:
             self.REPLY_RESPONSE[result](validated_data)
             return
-
+        role = validated_data.get("params").get("account").get("role")
         _id = validated_data['params']['id']
         check_transaction = Transaction.objects.filter(order_key=order_key).order_by('-id')
         if check_transaction.exists():
@@ -258,3 +261,27 @@ class PaycomView(MerchantAPIView):
                 transaction=str(obj.id),
                 state=CREATE_TRANSACTION
             ))
+        if role != "Bemor" and role != "Doktor":
+            self.reply = dict(error=dict(
+                code = -31050,
+                message = self.user_topilmadi_xatoligi
+            ))
+
+    def check_perform_transaction(self, validated_data):
+        """
+        >>> self.check_perform_transaction(validated_data)
+        """
+        role = validated_data.get("params").get("account").get("role")
+        if role != "Bemor" and role != "Doktor":
+            self.reply = dict(error=dict(
+                code = -31050,
+                message = self.user_topilmadi_xatoligi
+            ))
+            return Response(self.reply)
+        assert self.VALIDATE_CLASS != None
+        validate_class: Paycom = self.VALIDATE_CLASS()
+        result: int = validate_class.check_order(**validated_data['params'])
+        assert result != None
+        self.REPLY_RESPONSE[result](validated_data)
+
+
