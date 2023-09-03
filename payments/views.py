@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from clickuz import ClickUz
 from clickuz.views import ClickUzMerchantAPIView
-from paycomuz import Paycom
+# from paycomuz import Paycom
 from paycomuz.views import MerchantAPIView
 from paycomuz.models import Transaction
 from datetime import datetime
@@ -111,31 +111,56 @@ class ClickView(ClickUzMerchantAPIView):
 
 
 # Payme
-class PaymeAPIView(APIView):
-    def post(self, request):
-        serializer = PaymentSerializer(data=request.data)
-        if serializer.is_valid():
-            data = serializer.validated_data
-            payment = Payment(
-                amount=data.get('amount'),
-                type='Payme',
-                completed=False,
-                role=data.get("role"),
-                doctor_patient_id=data.get('doctor_patient_id')
-            )
-            payment.save()
-            paycom = Paycom()
-            url = paycom.create_initialization(
-                amount=payment.amount * 100,
-                order_id=str(payment.doctor_patient_id),
-                return_url=""
-            )
-            return Response({
-                "link": url
-            }, status=status.HTTP_200_OK)
+from django.conf import settings
+import base64
+from decimal import Decimal
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+assert settings.PAYCOM_SETTINGS.get('KASSA_ID') != None
+assert settings.PAYCOM_SETTINGS.get('ACCOUNTS') != None
+assert settings.PAYCOM_SETTINGS['ACCOUNTS'].get('KEY') != None
 
+TOKEN = settings.PAYCOM_SETTINGS['TOKEN']
+KEY = settings.PAYCOM_SETTINGS['ACCOUNTS']['KEY']
+
+class PayComResponse(object):
+    LINK = 'https://checkout.paycom.uz'
+
+    def create_initialization(self, amount: Decimal, abonent_id: str, role: str, return_url: str) -> str:
+        """
+
+        documentation : https://help.paycom.uz/ru/initsializatsiya-platezhey/otpravka-cheka-po-metodu-get
+
+        >>> self.create_initialization(amount=Decimal(5000.00), order_id='1', return_url='https://example.com/success/')
+        """
+
+        params = f"m={TOKEN};ac.{KEY}={abonent_id};ac.role={role};a={amount};c={return_url}"
+        encode_params = base64.b64encode(params.encode("utf-8"))
+        encode_params = str(encode_params, 'utf-8')
+        url = f"{self.LINK}/{encode_params}"
+        return url
+
+class Paycom(PayComResponse):
+    ORDER_FOUND = 200
+    ORDER_NOT_FOND = -31050
+    INVALID_AMOUNT = -31001
+
+    def check_order(self, amount, account, *args, **kwargs):
+        """
+        >>> self.check_order(amount=amount, account=account)
+        """
+        pass
+
+    def successfully_payment(self, account, transaction, *args, **kwargs):
+        """
+        >>> self.successfully_payment(account=account, transaction=transaction)
+        """
+        pass
+
+    def cancel_payment(self, account, transaction, *args, **kwargs):
+        """
+        >>> self.cancel_payment(account=account,transaction=transaction)
+        """
+        pass
 
 class CheckOrder(Paycom):
     def check_order(self, amount, account, *args, **kwargs):
@@ -187,6 +212,32 @@ class CheckOrder(Paycom):
                 return False
         else:
             return False
+
+class PaymeAPIView(APIView):
+    def post(self, request):
+        serializer = PaymentSerializer(data=request.data)
+        if serializer.is_valid():
+            data = serializer.validated_data
+            payment = Payment(
+                amount=data.get('amount'),
+                type='Payme',
+                completed=False,
+                role=data.get("role"),
+                doctor_patient_id=data.get('doctor_patient_id')
+            )
+            payment.save()
+            paycom = Paycom()
+            url = paycom.create_initialization(
+                amount=payment.amount * 100,
+                abonent_id=str(payment.doctor_patient_id),
+                role=payment.role,
+                return_url=""
+            )
+            return Response({
+                "link": url
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PaycomView(MerchantAPIView):
