@@ -1,6 +1,8 @@
+import pytz
 from clickuz.click_authorization import click_authorization
 from clickuz.serializer import ClickUzSerializer
 from clickuz.status import PREPARE, COMPLETE, AUTHORIZATION_FAIL_CODE, AUTHORIZATION_FAIL
+from drf_yasg.utils import swagger_auto_schema
 from paycomuz.status import ORDER_FOUND, ORDER_NOT_FOND, ORDER_NOT_FOND_MESSAGE, CREATE_TRANSACTION
 from rest_framework.views import APIView
 from rest_framework import status
@@ -10,33 +12,69 @@ from clickuz.views import ClickUzMerchantAPIView
 # from paycomuz import Paycom
 from paycomuz.views import MerchantAPIView
 from paycomuz.models import Transaction
-from datetime import datetime
 from rest_framework import serializers
 
 from .models import *
 from .serializers import *
+import pytz
+from datetime import datetime
+from django.utils.timezone import make_aware
 
 
 class ClickAPIView(APIView):
+    @swagger_auto_schema(request_body=PaymentSerializer)
     def post(self, request):
         serializer = PaymentSerializer(data=request.data)
         if serializer.is_valid():
             data = serializer.validated_data
-            payment = Payment(
-                amount=data.get('amount'),
-                type='Click',
-                completed=False,
-                role=data.get("role"),
-                doctor_patient_id=data.get('doctor_patient_id')
-            )
-            payment.save()
-            url = ClickUz.generate_url(
-                order_id=str(payment.doctor_patient_id),
-                amount=str(payment.amount)
-            )
-            return Response({
-                "link": url
-            }, status=status.HTTP_200_OK)
+
+            # doctor_patient tekshiruv
+            idd = data.get('doctor_patient_id')
+            if len(idd) > 0 and idd[0] in ['8', '9']:
+                doctor = Shifokorlar.objects.filter(payment_id=idd)
+                if doctor.exists():
+                    payment = Payment(
+                        amount=data.get('amount'),
+                        type='Click',
+                        completed=False,
+                        role=data.get("role"),
+                        doctor_patient_id=data.get('doctor_patient_id')
+                    )
+                    payment.save()
+                    url = ClickUz.generate_url(
+                        order_id=str(payment.doctor_patient_id),
+                        amount=str(payment.amount)
+                    )
+                    return Response({
+                        "link": url
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({'error': 'doctor_patient_id topilmadi!'})
+            else:
+                patient = Foydalanuvchi.objects.filter(payment_id=idd)
+                if patient.exists():
+                    payment = Payment(
+                        amount=data.get('amount'),
+                        type='Click',
+                        completed=False,
+                        role=data.get("role"),
+                        doctor_patient_id=data.get('doctor_patient_id')
+                    )
+                    payment.save()
+                    if payment.role == "Bemor":
+                        com_par = 2
+                    else:
+                        com_par = 1
+                    url = ClickUz.generate_url(
+                        order_id=str(payment.doctor_patient_id),
+                        amount=str(payment.amount),
+                        return_url=com_par
+                    )
+                    return Response({
+                        "link": url
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({'error': 'doctor_patient_id topilmadi!'})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -72,10 +110,32 @@ class OrderCheckAndPayment(ClickUz):
 
     def successfully_payment(self, order_id: str, transaction: object, *args, **kwargs):
         charge = Payment.objects.filter(doctor_patient_id=order_id)
+
+        bemor = Foydalanuvchi.objects.filter(payment_id=order_id)
+        if bemor.exists():
+            bemor_obj = bemor.first()
+            bemor_obj.balance += charge.last().amount
+            bemor_obj.save()
+
+        doctor = Shifokorlar.objects.filter(payment_id=order_id)
+        if doctor.exists():
+            doctor_obj = doctor.first()
+            doctor_obj.balance += charge.last().amount
+            doctor_obj.save()
+
         if charge.exists():
-            charge = charge.last()
-            charge.completed = True
-            charge.save()
+            charge_obj = charge.last()
+            charge_obj.completed = True
+            charge_obj.save()
+
+            post_history = Balance_History(
+                payment_id=order_id,
+                balance=charge_obj.amount,
+                date=timezone.now(),
+                tranzaksiya_id=transaction.id
+            )
+            post_history.save()
+
             return True
         else:
             return False
@@ -84,6 +144,7 @@ class OrderCheckAndPayment(ClickUz):
 class ClickView(ClickUzMerchantAPIView):
     VALIDATE_CLASS = OrderCheckAndPayment
 
+    @swagger_auto_schema(request_body=ClickUzSerializer)
     def post(self, request):
         serializer = ClickUzSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -122,6 +183,7 @@ assert settings.PAYCOM_SETTINGS['ACCOUNTS'].get('KEY') != None
 TOKEN = settings.PAYCOM_SETTINGS['TOKEN']
 KEY = settings.PAYCOM_SETTINGS['ACCOUNTS']['KEY']
 
+
 class PayComResponse(object):
     LINK = 'https://checkout.paycom.uz'
 
@@ -138,6 +200,7 @@ class PayComResponse(object):
         encode_params = str(encode_params, 'utf-8')
         url = f"{self.LINK}/{encode_params}"
         return url
+
 
 class Paycom(PayComResponse):
     ORDER_FOUND = 200
@@ -161,6 +224,7 @@ class Paycom(PayComResponse):
         >>> self.cancel_payment(account=account,transaction=transaction)
         """
         pass
+
 
 class CheckOrder(Paycom):
     def check_order(self, amount, account, *args, **kwargs):
@@ -189,11 +253,31 @@ class CheckOrder(Paycom):
         if transaction.exists():
             transaction = transaction.first()
             charge = Payment.objects.filter(doctor_patient_id=transaction.order_key)
+
+            bemor = Foydalanuvchi.objects.filter(payment_id=transaction.order_key)
+            if bemor:
+                bemor_obj = bemor.first()
+                bemor_obj.balance += charge.last().amount
+                bemor_obj.save()
+
+            doctor = Shifokorlar.objects.filter(payment_id=transaction.order_key)
+            if doctor:
+                doctor_obj = doctor.first()
+                doctor_obj.balance += charge.last().amount
+                doctor_obj.save()
+
             if charge.exists():
-                charge = charge.last()
-                charge.completed = True
-                charge.save()
-                return True
+                charge_obj = charge.last()
+                charge_obj.completed = True
+                charge_obj.save()
+
+                post_history = Balance_History(
+                    payment_id=transaction.order_key,
+                    balance=charge_obj.amount,
+                    date=datetime.now(pytz.timezone('Asia/Tashkent')),
+                    tranzaksiya_id=transaction.id
+                )
+                post_history.save()
             else:
                 return False
         else:
@@ -213,29 +297,60 @@ class CheckOrder(Paycom):
         else:
             return False
 
+
 class PaymeAPIView(APIView):
+    @swagger_auto_schema(request_body=PaymentSerializer)
     def post(self, request):
         serializer = PaymentSerializer(data=request.data)
         if serializer.is_valid():
             data = serializer.validated_data
-            payment = Payment(
-                amount=data.get('amount'),
-                type='Payme',
-                completed=False,
-                role=data.get("role"),
-                doctor_patient_id=data.get('doctor_patient_id')
-            )
-            payment.save()
-            paycom = Paycom()
-            url = paycom.create_initialization(
-                amount=payment.amount * 100,
-                abonent_id=str(payment.doctor_patient_id),
-                role=payment.role,
-                return_url=""
-            )
-            return Response({
-                "link": url
-            }, status=status.HTTP_200_OK)
+            idd = data.get('doctor_patient_id')
+            if idd[0] in ['8', '9']:
+                doctor = Shifokorlar.objects.filter(payment_id=idd)
+                if doctor:
+                    payment = Payment(
+                        amount=data.get('amount'),
+                        type='Payme',
+                        completed=False,
+                        role=data.get("role"),
+                        doctor_patient_id=data.get('doctor_patient_id')
+                    )
+                    payment.save()
+                    paycom = Paycom()
+                    url = paycom.create_initialization(
+                        amount=payment.amount * 100,
+                        abonent_id=str(payment.doctor_patient_id),
+                        role=payment.role,
+                        return_url=""
+                    )
+                    return Response({
+                        "link": url
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({'error': 'doctor_patient_id topilmadi!'})
+            else:
+                patient = Foydalanuvchi.objects.filter(payment_id=idd)
+                if patient:
+                    payment = Payment(
+                        amount=data.get('amount'),
+                        type='Payme',
+                        completed=False,
+                        role=data.get("role"),
+                        doctor_patient_id=data.get('doctor_patient_id')
+                    )
+                    payment.save()
+                    paycom = Paycom()
+                    url = paycom.create_initialization(
+                        amount=payment.amount * 100,
+                        abonent_id=str(payment.doctor_patient_id),
+                        role=payment.role,
+                        return_url=""
+                    )
+                    return Response({
+                        "link": url
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({'error': 'doctor_patient_id topilmadi!'})
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -334,5 +449,4 @@ class PaycomView(MerchantAPIView):
         result: int = validate_class.check_order(**validated_data['params'])
         assert result != None
         self.REPLY_RESPONSE[result](validated_data)
-
 
